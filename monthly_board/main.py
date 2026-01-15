@@ -208,10 +208,14 @@ class MonthZone(QFrame):
             if child.widget():
                 child.widget().deleteLater()
 
-        # Update style based on whether there are plans
-        self._update_style(has_plans=len(plans) > 0)
+        # Filter out completed plans for preview
+        active_plans = [p for p in plans if not p.completed]
+        completed_count = len(plans) - len(active_plans)
 
-        visible_plans = plans[:max_visible]
+        # Update style based on whether there are active plans
+        self._update_style(has_plans=len(active_plans) > 0)
+
+        visible_plans = active_plans[:max_visible]
         for i, plan in enumerate(visible_plans):
             is_primary = i < 2  # First 2 items are primary
             block = PlanBlock(plan, is_primary=is_primary)
@@ -220,8 +224,15 @@ class MonthZone(QFrame):
             self.plans_layout.addWidget(block)
 
         # Show summary if more plans exist
-        if len(plans) > max_visible:
-            more_label = QLabel(f"+{len(plans) - max_visible}")
+        hidden_count = len(active_plans) - max_visible
+        if hidden_count > 0 or completed_count > 0:
+            summary_parts = []
+            if hidden_count > 0:
+                summary_parts.append(f"+{hidden_count}")
+            if completed_count > 0:
+                summary_parts.append(f"✓{completed_count}")
+
+            more_label = QLabel(" ".join(summary_parts))
             more_label.setStyleSheet("""
                 color: rgba(255, 255, 255, 0.15);
                 font-size: 9px;
