@@ -396,8 +396,8 @@ class MonthDetailView(QWidget):
 
         # 3-column fixed layout
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(12, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 0, 0, 0)
+        layout.setSpacing(14)
 
         # Column 1: Checkbox
         checkbox = QCheckBox()
@@ -440,19 +440,19 @@ class MonthDetailView(QWidget):
         name_label.mousePressEvent = lambda e, p=plan: self._on_name_click(e, p)
         layout.addWidget(name_label, 1)
 
-        # Column 3: Date area (fixed 70px, right aligned)
+        # Column 3: Date area (fixed 80px, right aligned)
         date_display = plan.get_date_display()
         date_container = QWidget()
-        date_container.setFixedWidth(70)
+        date_container.setFixedWidth(80)
         date_layout = QHBoxLayout(date_container)
-        date_layout.setContentsMargins(0, 0, 14, 0)
+        date_layout.setContentsMargins(0, 0, 16, 0)
         date_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         if date_display:
             date_label = QLabel(date_display)
             date_label.setStyleSheet(f"""
-                color: rgba(255, 255, 255, {0.15 if plan.completed else 0.25});
-                font-size: 10px;
+                color: rgba(255, 255, 255, {0.25 if plan.completed else 0.4});
+                font-size: 11px;
                 background: transparent;
             """)
             date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
