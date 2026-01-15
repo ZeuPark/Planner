@@ -52,6 +52,7 @@ class Plan:
     color: str
     start_day: Optional[int] = None  # 1-31
     end_day: Optional[int] = None    # 1-31
+    completed: bool = False
 
     @classmethod
     def create(
@@ -98,7 +99,8 @@ class Plan:
             "plan_type": self.plan_type.value,
             "color": self.color,
             "start_day": self.start_day,
-            "end_day": self.end_day
+            "end_day": self.end_day,
+            "completed": self.completed
         }
 
     @classmethod
@@ -111,7 +113,8 @@ class Plan:
             plan_type=PlanType(data["plan_type"]),
             color=data["color"],
             start_day=data.get("start_day"),
-            end_day=data.get("end_day")
+            end_day=data.get("end_day"),
+            completed=data.get("completed", False)
         )
 
 

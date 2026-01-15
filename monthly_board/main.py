@@ -52,18 +52,24 @@ class PlanBlock(QFrame):
         self.setFixedHeight(28)
         self.setCursor(Qt.PointingHandCursor)
 
-        # Primary items slightly more visible
-        bg_alpha = "0.05" if self.is_primary else "0.025"
-        text_alpha = "0.85" if self.is_primary else "0.65"
+        # Completed plans are faded
+        if self.plan.completed:
+            bg_alpha = "0.015"
+            text_alpha = "0.3"
+            border_color = "rgba(128, 128, 128, 0.2)"
+        else:
+            bg_alpha = "0.05" if self.is_primary else "0.025"
+            text_alpha = "0.85" if self.is_primary else "0.65"
+            border_color = self.plan.color
 
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(255, 255, 255, {bg_alpha});
-                border-left: 2px solid {self.plan.color};
+                border-left: 2px solid {border_color};
                 border-radius: 0px;
             }}
             QFrame:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
+                background-color: rgba(255, 255, 255, 0.06);
             }}
         """)
 
@@ -73,11 +79,13 @@ class PlanBlock(QFrame):
 
         # Plan name
         name_label = QLabel(self.plan.name)
+        decoration = "line-through" if self.plan.completed else "none"
         name_label.setStyleSheet(f"""
             color: rgba(255, 255, 255, {text_alpha});
             font-size: 11px;
             font-weight: 500;
             background: transparent;
+            text-decoration: {decoration};
         """)
         layout.addWidget(name_label)
 
@@ -87,8 +95,8 @@ class PlanBlock(QFrame):
         date_display = self.plan.get_date_display()
         if date_display:
             date_label = QLabel(date_display)
-            date_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.2);
+            date_label.setStyleSheet(f"""
+                color: rgba(255, 255, 255, {0.1 if self.plan.completed else 0.2});
                 font-size: 9px;
                 background: transparent;
             """)
@@ -233,6 +241,7 @@ class MonthDetailView(QWidget):
     back_clicked = Signal()
     plan_clicked = Signal(str)
     plan_delete_requested = Signal(str)
+    plan_toggle_requested = Signal(str)  # Toggle completion
     add_plan_clicked = Signal(int)
 
     def __init__(self, parent=None):
@@ -241,6 +250,19 @@ class MonthDetailView(QWidget):
         self.month = 0
         self.plans = []
         self._setup_ui()
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            self.add_plan_clicked.emit(self.month)
+        elif event.key() == Qt.Key_Escape:
+            self.back_clicked.emit()
+        else:
+            super().keyPressEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.setFocus()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -347,34 +369,71 @@ class MonthDetailView(QWidget):
     def _create_plan_item(self, plan: Plan, is_primary: bool = False) -> QFrame:
         item = QFrame()
         item.setFixedHeight(38)
-        item.setCursor(Qt.PointingHandCursor)
 
-        bg_alpha = "0.04" if is_primary else "0.025"
-        text_alpha = "0.85" if is_primary else "0.7"
+        # Completed plans are more faded
+        if plan.completed:
+            bg_alpha = "0.015"
+            text_alpha = "0.35"
+            border_color = f"rgba(128, 128, 128, 0.3)"
+        else:
+            bg_alpha = "0.04" if is_primary else "0.025"
+            text_alpha = "0.85" if is_primary else "0.7"
+            border_color = plan.color
 
         item.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(255, 255, 255, {bg_alpha});
-                border-left: 2px solid {plan.color};
+                border-left: 2px solid {border_color};
                 border-radius: 0px;
             }}
             QFrame:hover {{
-                background-color: rgba(255, 255, 255, 0.06);
+                background-color: rgba(255, 255, 255, 0.05);
             }}
         """)
 
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(12, 0, 14, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(10, 0, 14, 0)
+        layout.setSpacing(10)
+
+        # Checkbox for completion
+        checkbox = QCheckBox()
+        checkbox.setChecked(plan.completed)
+        checkbox.setFixedSize(18, 18)
+        checkbox.setCursor(Qt.PointingHandCursor)
+        checkbox.setStyleSheet("""
+            QCheckBox {
+                spacing: 0px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 4px;
+                background-color: transparent;
+            }
+            QCheckBox::indicator:hover {
+                border-color: rgba(255, 255, 255, 0.4);
+            }
+            QCheckBox::indicator:checked {
+                background-color: rgba(255, 255, 255, 0.15);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+        """)
+        checkbox.toggled.connect(lambda checked, p=plan: self.plan_toggle_requested.emit(p.id))
+        layout.addWidget(checkbox)
 
         # Plan name
         name_label = QLabel(plan.name)
+        decoration = "line-through" if plan.completed else "none"
         name_label.setStyleSheet(f"""
             color: rgba(255, 255, 255, {text_alpha});
             font-size: 13px;
             font-weight: 500;
             background: transparent;
+            text-decoration: {decoration};
         """)
+        name_label.setCursor(Qt.PointingHandCursor)
+        name_label.mousePressEvent = lambda e, p=plan: self._on_name_click(e, p)
         layout.addWidget(name_label)
 
         layout.addStretch()
@@ -383,19 +442,16 @@ class MonthDetailView(QWidget):
         date_display = plan.get_date_display()
         if date_display:
             date_label = QLabel(date_display)
-            date_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.2);
+            date_label.setStyleSheet(f"""
+                color: rgba(255, 255, 255, {0.15 if plan.completed else 0.2});
                 font-size: 11px;
                 background: transparent;
             """)
             layout.addWidget(date_label)
 
-        # Make clickable
-        item.mousePressEvent = lambda e, p=plan: self._on_item_click(e, p)
-
         return item
 
-    def _on_item_click(self, event, plan: Plan):
+    def _on_name_click(self, event, plan: Plan):
         if event.button() == Qt.LeftButton:
             self.plan_clicked.emit(plan.id)
         elif event.button() == Qt.RightButton:
@@ -740,6 +796,7 @@ class YearBoard(QWidget):
         self.detail_view.back_clicked.connect(self._show_grid_view)
         self.detail_view.plan_clicked.connect(self._on_plan_clicked)
         self.detail_view.plan_delete_requested.connect(self._on_plan_delete)
+        self.detail_view.plan_toggle_requested.connect(self._on_plan_toggle)
         self.detail_view.add_plan_clicked.connect(self._on_add_plan)
         self.stack.addWidget(self.detail_view)
 
@@ -895,6 +952,14 @@ class YearBoard(QWidget):
         self.storage.save(self.state)
         self._update_board()
         self._update_detail_view()
+
+    def _on_plan_toggle(self, plan_id: str):
+        plan = self.state.get_plan(plan_id)
+        if plan:
+            plan.completed = not plan.completed
+            self.storage.save(self.state)
+            self._update_board()
+            self._update_detail_view()
 
     def _on_month_clicked(self, month: int):
         self._show_detail_view(month)
