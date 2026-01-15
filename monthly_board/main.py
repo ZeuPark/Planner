@@ -399,12 +399,12 @@ class MonthDetailView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Column 1: Checkbox area (fixed 44px, centered)
+        # Column 1: Checkbox area (fixed 50px, centered)
         checkbox_container = QWidget()
-        checkbox_container.setFixedWidth(44)
+        checkbox_container.setFixedWidth(50)
         checkbox_layout = QHBoxLayout(checkbox_container)
-        checkbox_layout.setContentsMargins(14, 0, 6, 0)
-        checkbox_layout.setAlignment(Qt.AlignVCenter)
+        checkbox_layout.setContentsMargins(16, 0, 16, 0)
+        checkbox_layout.setAlignment(Qt.AlignCenter)
 
         checkbox = QCheckBox()
         checkbox.setChecked(plan.completed)
