@@ -396,40 +396,34 @@ class MonthDetailView(QWidget):
 
         # 3-column fixed layout
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(12, 0, 0, 0)
+        layout.setSpacing(8)
 
-        # Column 1: Checkbox area (fixed 50px, centered)
-        checkbox_container = QWidget()
-        checkbox_container.setFixedWidth(50)
-        checkbox_layout = QHBoxLayout(checkbox_container)
-        checkbox_layout.setContentsMargins(16, 0, 16, 0)
-        checkbox_layout.setAlignment(Qt.AlignCenter)
-
+        # Column 1: Checkbox
         checkbox = QCheckBox()
         checkbox.setChecked(plan.completed)
-        checkbox.setFixedSize(16, 16)
         checkbox.setCursor(Qt.PointingHandCursor)
         checkbox.setStyleSheet("""
             QCheckBox {
                 spacing: 0px;
                 background: transparent;
+                min-width: 20px;
+                min-height: 20px;
             }
             QCheckBox::indicator {
-                width: 14px;
-                height: 14px;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 3px;
+                width: 16px;
+                height: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                border-radius: 4px;
                 background-color: transparent;
             }
             QCheckBox::indicator:checked {
                 background-color: rgba(255, 255, 255, 0.2);
-                border-color: rgba(255, 255, 255, 0.25);
+                border-color: rgba(255, 255, 255, 0.3);
             }
         """)
         checkbox.toggled.connect(lambda checked, p=plan: self.plan_toggle_requested.emit(p.id))
-        checkbox_layout.addWidget(checkbox)
-        layout.addWidget(checkbox_container)
+        layout.addWidget(checkbox)
 
         # Column 2: Text area (flex, elided)
         name_label = QLabel(plan.name)
