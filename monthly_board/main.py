@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase
 
-from qt_material import apply_stylesheet
+import qdarktheme
 
 from models import Plan, PlanType, BoardState, PLAN_COLORS
 from storage import Storage
@@ -541,11 +541,11 @@ def main():
     # Load custom fonts first
     load_fonts()
 
-    # Dark theme - minimal
-    apply_stylesheet(app, theme='dark_teal.xml')
+    # Clean dark theme with better readability
+    app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
 
     # Use Pretendard for better Korean readability
-    font = QFont("Pretendard", 10)
+    font = QFont("Pretendard", 11)
     font.setWeight(QFont.Weight.Normal)
     app.setFont(font)
 
