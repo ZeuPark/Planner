@@ -27,12 +27,12 @@ from storage import Storage
 MONTH_NAMES = ["", "1월", "2월", "3월", "4월", "5월", "6월",
                "7월", "8월", "9월", "10월", "11월", "12월"]
 
-# Simplified color palette - just 4 muted colors
+# Muted color palette - low saturation for calm appearance
 SIMPLE_COLORS = [
-    "#5c6bc0",  # Indigo
-    "#26a69a",  # Teal
-    "#ef5350",  # Red
-    "#ffa726",  # Orange
+    "#7986cb",  # Muted Indigo
+    "#4db6ac",  # Muted Teal
+    "#e57373",  # Muted Red
+    "#ffb74d",  # Muted Orange
 ]
 
 
@@ -42,18 +42,24 @@ class PlanBlock(QFrame):
     clicked = Signal(str)
     delete_requested = Signal(str)
 
-    def __init__(self, plan: Plan, parent=None):
+    def __init__(self, plan: Plan, is_primary: bool = False, parent=None):
         super().__init__(parent)
         self.plan = plan
+        self.is_primary = is_primary
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setFixedHeight(32)
+        self.setFixedHeight(28)
         self.setCursor(Qt.PointingHandCursor)
+
+        # Primary items slightly more visible
+        bg_alpha = "0.05" if self.is_primary else "0.025"
+        text_alpha = "0.85" if self.is_primary else "0.65"
+
         self.setStyleSheet(f"""
             QFrame {{
-                background-color: rgba(255, 255, 255, 0.04);
-                border-left: 3px solid {self.plan.color};
+                background-color: rgba(255, 255, 255, {bg_alpha});
+                border-left: 2px solid {self.plan.color};
                 border-radius: 0px;
             }}
             QFrame:hover {{
@@ -62,14 +68,14 @@ class PlanBlock(QFrame):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(0)
 
         # Plan name
         name_label = QLabel(self.plan.name)
-        name_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 12px;
+        name_label.setStyleSheet(f"""
+            color: rgba(255, 255, 255, {text_alpha});
+            font-size: 11px;
             font-weight: 500;
             background: transparent;
         """)
@@ -82,8 +88,8 @@ class PlanBlock(QFrame):
         if date_display:
             date_label = QLabel(date_display)
             date_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.3);
-                font-size: 10px;
+                color: rgba(255, 255, 255, 0.2);
+                font-size: 9px;
                 background: transparent;
             """)
             layout.addWidget(date_label)
@@ -112,28 +118,22 @@ class MonthZone(QFrame):
 
     def _setup_ui(self):
         self.setObjectName("monthZone")
-        self.setStyleSheet("""
-            QFrame#monthZone {
-                background-color: rgba(255, 255, 255, 0.02);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
-            }
-        """)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._update_style(has_plans=False)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 10)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(0)
 
         # Header - minimal, muted
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(4, 0, 4, 0)
+        header_layout.setContentsMargins(2, 0, 2, 0)
 
         month_label = QLabel(MONTH_NAMES[self.month])
         month_label.setStyleSheet("""
-            font-size: 13px;
-            font-weight: 600;
-            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.35);
         """)
         header_layout.addWidget(month_label)
 
@@ -141,19 +141,19 @@ class MonthZone(QFrame):
 
         # Subtle add button
         self.add_btn = QPushButton("+")
-        self.add_btn.setFixedSize(22, 22)
+        self.add_btn.setFixedSize(20, 20)
         self.add_btn.setCursor(Qt.PointingHandCursor)
         self.add_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
                 border: none;
-                border-radius: 11px;
-                color: rgba(255, 255, 255, 0.25);
-                font-size: 16px;
+                border-radius: 10px;
+                color: rgba(255, 255, 255, 0.15);
+                font-size: 14px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                color: rgba(255, 255, 255, 0.7);
+                background-color: rgba(255, 255, 255, 0.06);
+                color: rgba(255, 255, 255, 0.5);
             }
         """)
         self.add_btn.clicked.connect(lambda: self.add_plan_clicked.emit(self.month))
@@ -162,16 +162,34 @@ class MonthZone(QFrame):
         layout.addLayout(header_layout)
 
         # Spacer between header and plans
-        layout.addSpacing(12)
+        layout.addSpacing(14)
 
         # Plans container
         self.plans_widget = QWidget()
         self.plans_layout = QVBoxLayout(self.plans_widget)
         self.plans_layout.setContentsMargins(0, 0, 0, 0)
-        self.plans_layout.setSpacing(6)
+        self.plans_layout.setSpacing(3)
 
         layout.addWidget(self.plans_widget)
         layout.addStretch()
+
+    def _update_style(self, has_plans: bool):
+        if has_plans:
+            self.setStyleSheet("""
+                QFrame#monthZone {
+                    background-color: rgba(255, 255, 255, 0.015);
+                    border: 1px solid rgba(255, 255, 255, 0.03);
+                    border-radius: 6px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QFrame#monthZone {
+                    background-color: rgba(255, 255, 255, 0.008);
+                    border: 1px solid rgba(255, 255, 255, 0.02);
+                    border-radius: 6px;
+                }
+            """)
 
     def set_plans(self, plans: list[Plan]):
         self.plans = plans
@@ -182,22 +200,26 @@ class MonthZone(QFrame):
             if child.widget():
                 child.widget().deleteLater()
 
+        # Update style based on whether there are plans
+        self._update_style(has_plans=len(plans) > 0)
+
         visible_plans = plans[:max_visible]
-        for plan in visible_plans:
-            block = PlanBlock(plan)
+        for i, plan in enumerate(visible_plans):
+            is_primary = i < 2  # First 2 items are primary
+            block = PlanBlock(plan, is_primary=is_primary)
             block.clicked.connect(self.plan_clicked.emit)
             block.delete_requested.connect(self.plan_delete_requested.emit)
             self.plans_layout.addWidget(block)
 
         # Show summary if more plans exist
         if len(plans) > max_visible:
-            more_label = QLabel(f"+{len(plans) - max_visible}개 더보기")
+            more_label = QLabel(f"+{len(plans) - max_visible}")
             more_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.3);
-                font-size: 11px;
-                padding: 4px 0;
+                color: rgba(255, 255, 255, 0.15);
+                font-size: 9px;
+                padding: 6px 0 2px 0;
             """)
-            more_label.setAlignment(Qt.AlignCenter)
+            more_label.setAlignment(Qt.AlignRight)
             self.plans_layout.addWidget(more_label)
 
     def mousePressEvent(self, event):
@@ -310,41 +332,46 @@ class MonthDetailView(QWidget):
         if not plans:
             empty_label = QLabel("플랜이 없습니다")
             empty_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.3);
-                font-size: 15px;
+                color: rgba(255, 255, 255, 0.2);
+                font-size: 13px;
                 padding: 40px;
             """)
             empty_label.setAlignment(Qt.AlignCenter)
             self.plans_layout.insertWidget(0, empty_label)
         else:
-            for plan in plans:
-                item = self._create_plan_item(plan)
+            for i, plan in enumerate(plans):
+                is_primary = i < 2  # First 2 items emphasized
+                item = self._create_plan_item(plan, is_primary=is_primary)
                 self.plans_layout.insertWidget(self.plans_layout.count() - 1, item)
 
-    def _create_plan_item(self, plan: Plan) -> QFrame:
+    def _create_plan_item(self, plan: Plan, is_primary: bool = False) -> QFrame:
         item = QFrame()
-        item.setFixedHeight(44)
+        item.setFixedHeight(38)
         item.setCursor(Qt.PointingHandCursor)
+
+        bg_alpha = "0.04" if is_primary else "0.025"
+        text_alpha = "0.85" if is_primary else "0.7"
+
         item.setStyleSheet(f"""
             QFrame {{
-                background-color: rgba(255, 255, 255, 0.04);
-                border-left: 3px solid {plan.color};
+                background-color: rgba(255, 255, 255, {bg_alpha});
+                border-left: 2px solid {plan.color};
                 border-radius: 0px;
             }}
             QFrame:hover {{
-                background-color: rgba(255, 255, 255, 0.07);
+                background-color: rgba(255, 255, 255, 0.06);
             }}
         """)
 
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(14, 0, 16, 0)
+        layout.setContentsMargins(12, 0, 14, 0)
         layout.setSpacing(0)
 
         # Plan name
         name_label = QLabel(plan.name)
-        name_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
+        name_label.setStyleSheet(f"""
+            color: rgba(255, 255, 255, {text_alpha});
+            font-size: 13px;
             font-weight: 500;
             background: transparent;
         """)
@@ -357,8 +384,8 @@ class MonthDetailView(QWidget):
         if date_display:
             date_label = QLabel(date_display)
             date_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.3);
-                font-size: 12px;
+                color: rgba(255, 255, 255, 0.2);
+                font-size: 11px;
                 background: transparent;
             """)
             layout.addWidget(date_label)
