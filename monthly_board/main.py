@@ -6,6 +6,7 @@ Monthly Plan Board
 플랜 블록이 주인공, 나머지는 배경.
 """
 import sys
+import os
 from datetime import date
 
 from PySide6.QtWidgets import (
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (
     QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QFontDatabase
 
 from qt_material import apply_stylesheet
 
@@ -517,14 +518,35 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.board)
 
 
+def load_fonts():
+    """Load Pretendard fonts for better Korean readability."""
+    fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+
+    font_files = [
+        "Pretendard-Regular.otf",
+        "Pretendard-Medium.otf",
+        "Pretendard-SemiBold.otf",
+        "Pretendard-Bold.otf",
+    ]
+
+    for font_file in font_files:
+        font_path = os.path.join(fonts_dir, font_file)
+        if os.path.exists(font_path):
+            QFontDatabase.addApplicationFont(font_path)
+
+
 def main():
     app = QApplication(sys.argv)
+
+    # Load custom fonts first
+    load_fonts()
 
     # Dark theme - minimal
     apply_stylesheet(app, theme='dark_teal.xml')
 
-    # Override with cleaner font
-    font = QFont("Segoe UI", 10)
+    # Use Pretendard for better Korean readability
+    font = QFont("Pretendard", 10)
+    font.setWeight(QFont.Weight.Normal)
     app.setFont(font)
 
     window = MainWindow()
