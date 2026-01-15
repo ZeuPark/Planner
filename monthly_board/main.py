@@ -1,20 +1,18 @@
 """
 Monthly Plan Board
-개인용 월 단위 플랜 캘린더
+개인용 월 단위 플랜 보드
 
-A personal monthly planning board that shows plans as visual blocks.
+12개월을 한눈에 보고 각 월에 플랜을 추가하는 보드.
 """
 import sys
-from calendar import monthrange
-from datetime import date, timedelta
-from typing import Optional
+from datetime import date
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QFrame, QDialog, QLineEdit,
-    QComboBox, QDateEdit, QSizePolicy, QSpacerItem, QScrollArea
+    QComboBox, QSizePolicy, QSpacerItem, QScrollArea
 )
-from PySide6.QtCore import Qt, Signal, QDate, QRect, QPoint
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QFont, QFontMetrics, QPen, QBrush
 
 from models import Plan, PlanType, BoardState, PLAN_COLORS
@@ -22,39 +20,67 @@ from storage import Storage
 from styles import STYLESHEET, COLORS
 
 
-class PlanBlock(QWidget):
-    """A visual block representing a plan on the calendar."""
+MONTH_NAMES = ["", "1월", "2월", "3월", "4월", "5월", "6월",
+               "7월", "8월", "9월", "10월", "11월", "12월"]
 
-    clicked = Signal(str)  # Emits plan_id
-    delete_requested = Signal(str)  # Emits plan_id
+
+class PlanCard(QFrame):
+    """A card representing a single plan."""
+
+    clicked = Signal(str)
+    delete_requested = Signal(str)
 
     def __init__(self, plan: Plan, parent=None):
         super().__init__(parent)
         self.plan = plan
-        self.setFixedHeight(24)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        self.setFixedHeight(36)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(f"{plan.name}\n{plan.start_date} ~ {plan.end_date}")
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {self.plan.color};
+                border-radius: 8px;
+                padding: 0px;
+            }}
+            QFrame:hover {{
+                background-color: {self._lighten_color(self.plan.color)};
+            }}
+        """)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(8)
 
-        # Draw rounded rectangle
-        color = QColor(self.plan.color)
-        painter.setBrush(QBrush(color))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(self.rect(), 6, 6)
+        # Plan name
+        name_label = QLabel(self.plan.name)
+        name_label.setStyleSheet(f"""
+            color: white;
+            font-size: 13px;
+            font-weight: bold;
+            background: transparent;
+        """)
+        layout.addWidget(name_label)
 
-        # Draw text
-        painter.setPen(QPen(QColor("#ffffff")))
-        font = QFont("Segoe UI", 10)
-        font.setBold(True)
-        painter.setFont(font)
+        layout.addStretch()
 
-        text_rect = self.rect().adjusted(10, 0, -10, 0)
-        metrics = QFontMetrics(font)
-        elided = metrics.elidedText(self.plan.name, Qt.ElideRight, text_rect.width())
-        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, elided)
+        # Type badge
+        type_label = QLabel(self.plan.plan_type.label)
+        type_label.setStyleSheet(f"""
+            color: rgba(255,255,255,0.7);
+            font-size: 11px;
+            background: transparent;
+        """)
+        layout.addWidget(type_label)
+
+    def _lighten_color(self, hex_color: str) -> str:
+        """Lighten a hex color."""
+        color = QColor(hex_color)
+        h, s, l, a = color.getHslF()
+        l = min(1.0, l + 0.1)
+        color.setHslF(h, s, l, a)
+        return color.name()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -63,102 +89,129 @@ class PlanBlock(QWidget):
             self.delete_requested.emit(self.plan.id)
 
 
-class CalendarCell(QFrame):
-    """A single cell in the calendar grid."""
+class MonthCard(QFrame):
+    """A card representing a single month with its plans."""
 
-    clicked = Signal(date)
-    drag_started = Signal(date)
-    drag_ended = Signal(date)
+    add_plan_clicked = Signal(int)  # month number
+    plan_clicked = Signal(str)  # plan id
+    plan_delete_requested = Signal(str)  # plan id
 
-    def __init__(self, cell_date: date, is_current_month: bool, is_today: bool, is_weekend: bool):
-        super().__init__()
-        self.cell_date = cell_date
-        self.is_current_month = is_current_month
-        self.is_today = is_today
-        self.is_weekend = is_weekend
-        self.plans_layout = None
-
+    def __init__(self, month: int, is_current: bool, parent=None):
+        super().__init__(parent)
+        self.month = month
+        self.is_current = is_current
+        self.plans: list[Plan] = []
         self._setup_ui()
 
     def _setup_ui(self):
-        if self.is_today:
-            self.setObjectName("calendarCellToday")
-        elif not self.is_current_month:
-            self.setObjectName("calendarCellOtherMonth")
-        elif self.is_weekend:
-            self.setObjectName("calendarCellWeekend")
+        if self.is_current:
+            self.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {COLORS['bg_secondary']};
+                    border: 2px solid {COLORS['accent']};
+                    border-radius: 16px;
+                }}
+            """)
         else:
-            self.setObjectName("calendarCell")
+            self.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {COLORS['bg_secondary']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 16px;
+                }}
+            """)
 
-        self.setMinimumSize(100, 100)
+        self.setMinimumHeight(180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        # Date number
-        date_label = QLabel(str(self.cell_date.day))
-        if self.is_today:
-            date_label.setObjectName("dateNumberToday")
+        # Header
+        header_layout = QHBoxLayout()
+
+        month_label = QLabel(MONTH_NAMES[self.month])
+        if self.is_current:
+            month_label.setStyleSheet(f"""
+                font-size: 18px;
+                font-weight: bold;
+                color: {COLORS['accent']};
+            """)
         else:
-            date_label.setObjectName("dateNumber")
+            month_label.setStyleSheet(f"""
+                font-size: 18px;
+                font-weight: bold;
+                color: {COLORS['text_primary']};
+            """)
+        header_layout.addWidget(month_label)
 
-        if not self.is_current_month:
-            date_label.setStyleSheet(f"color: {COLORS['text_muted']};")
+        header_layout.addStretch()
 
-        layout.addWidget(date_label)
+        # Add button
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(28, 28)
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 14px;
+                color: {COLORS['text_secondary']};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['accent']};
+                border-color: {COLORS['accent']};
+                color: white;
+            }}
+        """)
+        add_btn.clicked.connect(lambda: self.add_plan_clicked.emit(self.month))
+        header_layout.addWidget(add_btn)
+
+        layout.addLayout(header_layout)
 
         # Plans container
-        self.plans_container = QWidget()
-        self.plans_layout = QVBoxLayout(self.plans_container)
+        self.plans_widget = QWidget()
+        self.plans_layout = QVBoxLayout(self.plans_widget)
         self.plans_layout.setContentsMargins(0, 0, 0, 0)
-        self.plans_layout.setSpacing(2)
-        layout.addWidget(self.plans_container)
+        self.plans_layout.setSpacing(8)
 
+        layout.addWidget(self.plans_widget)
         layout.addStretch()
 
-    def add_plan_block(self, plan: Plan, is_start: bool, is_end: bool, span_days: int):
-        """Add a plan block to this cell."""
-        block = PlanBlock(plan, self)
+    def set_plans(self, plans: list[Plan]):
+        """Set the plans to display in this month."""
+        self.plans = plans
 
-        # Only show on start day for multi-day plans
-        if is_start or span_days == 1:
-            self.plans_layout.addWidget(block)
-            return block
-        return None
-
-    def clear_plans(self):
-        """Remove all plan blocks."""
+        # Clear existing
         while self.plans_layout.count():
             child = self.plans_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.is_current_month:
-            self.drag_started.emit(self.cell_date)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self.is_current_month:
-            self.drag_ended.emit(self.cell_date)
-        super().mouseReleaseEvent(event)
+        # Add plan cards
+        for plan in plans:
+            card = PlanCard(plan)
+            card.clicked.connect(self.plan_clicked.emit)
+            card.delete_requested.connect(self.plan_delete_requested.emit)
+            self.plans_layout.addWidget(card)
 
 
 class AddPlanDialog(QDialog):
-    """Dialog for adding a new plan."""
+    """Dialog for adding a new plan to a month."""
 
-    def __init__(self, start_date: date, end_date: date, parent=None):
+    def __init__(self, year: int, month: int, parent=None):
         super().__init__(parent)
-        self.start_date = start_date
-        self.end_date = end_date
+        self.year = year
+        self.month = month
         self.selected_color = PLAN_COLORS[0]
         self._setup_ui()
 
     def _setup_ui(self):
         self.setWindowTitle("플랜 추가")
-        self.setFixedSize(400, 380)
+        self.setFixedSize(380, 340)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
@@ -166,7 +219,7 @@ class AddPlanDialog(QDialog):
         layout.setSpacing(20)
 
         # Title
-        title = QLabel("새 플랜")
+        title = QLabel(f"{self.year}년 {MONTH_NAMES[self.month]} 플랜")
         title.setStyleSheet("font-size: 20px; font-weight: bold;")
         layout.addWidget(title)
 
@@ -178,32 +231,6 @@ class AddPlanDialog(QDialog):
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("플랜 이름을 입력하세요")
         layout.addWidget(self.name_input)
-
-        # Date range
-        dates_layout = QHBoxLayout()
-        dates_layout.setSpacing(16)
-
-        start_container = QVBoxLayout()
-        start_label = QLabel("시작")
-        start_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
-        start_container.addWidget(start_label)
-        self.start_edit = QDateEdit()
-        self.start_edit.setDate(QDate(self.start_date.year, self.start_date.month, self.start_date.day))
-        self.start_edit.setCalendarPopup(True)
-        start_container.addWidget(self.start_edit)
-        dates_layout.addLayout(start_container)
-
-        end_container = QVBoxLayout()
-        end_label = QLabel("종료")
-        end_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
-        end_container.addWidget(end_label)
-        self.end_edit = QDateEdit()
-        self.end_edit.setDate(QDate(self.end_date.year, self.end_date.month, self.end_date.day))
-        self.end_edit.setCalendarPopup(True)
-        end_container.addWidget(self.end_edit)
-        dates_layout.addLayout(end_container)
-
-        layout.addLayout(dates_layout)
 
         # Type selection
         type_label = QLabel("타입")
@@ -224,7 +251,7 @@ class AddPlanDialog(QDialog):
         colors_layout.setSpacing(8)
         self.color_buttons = []
 
-        for i, color in enumerate(PLAN_COLORS):
+        for color in PLAN_COLORS:
             btn = QPushButton()
             btn.setFixedSize(28, 28)
             btn.setStyleSheet(f"""
@@ -244,7 +271,6 @@ class AddPlanDialog(QDialog):
         colors_layout.addStretch()
         layout.addLayout(colors_layout)
 
-        # Select first color by default
         self._select_color(PLAN_COLORS[0], self.color_buttons[0])
 
         layout.addStretch()
@@ -265,10 +291,9 @@ class AddPlanDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _select_color(self, color: str, button: QPushButton):
-        """Select a color and highlight the button."""
+        """Select a color."""
         self.selected_color = color
 
-        # Reset all buttons
         for btn in self.color_buttons:
             c = btn.styleSheet().split("background-color: ")[1].split(";")[0]
             btn.setStyleSheet(f"""
@@ -282,7 +307,6 @@ class AddPlanDialog(QDialog):
                 }}
             """)
 
-        # Highlight selected
         button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {color};
@@ -293,20 +317,17 @@ class AddPlanDialog(QDialog):
 
     def get_plan_data(self) -> dict:
         """Get the plan data from the dialog."""
-        start_qdate = self.start_edit.date()
-        end_qdate = self.end_edit.date()
-
         return {
             "name": self.name_input.text().strip(),
-            "start_date": date(start_qdate.year(), start_qdate.month(), start_qdate.day()),
-            "end_date": date(end_qdate.year(), end_qdate.month(), end_qdate.day()),
+            "year": self.year,
+            "month": self.month,
             "plan_type": self.type_combo.currentData(),
             "color": self.selected_color
         }
 
 
 class EditPlanDialog(QDialog):
-    """Dialog for editing an existing plan."""
+    """Dialog for editing a plan."""
 
     delete_requested = Signal()
 
@@ -318,7 +339,7 @@ class EditPlanDialog(QDialog):
 
     def _setup_ui(self):
         self.setWindowTitle("플랜 수정")
-        self.setFixedSize(400, 420)
+        self.setFixedSize(380, 380)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
@@ -338,32 +359,6 @@ class EditPlanDialog(QDialog):
         self.name_input = QLineEdit()
         self.name_input.setText(self.plan.name)
         layout.addWidget(self.name_input)
-
-        # Date range
-        dates_layout = QHBoxLayout()
-        dates_layout.setSpacing(16)
-
-        start_container = QVBoxLayout()
-        start_label = QLabel("시작")
-        start_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
-        start_container.addWidget(start_label)
-        self.start_edit = QDateEdit()
-        self.start_edit.setDate(QDate(self.plan.start_date.year, self.plan.start_date.month, self.plan.start_date.day))
-        self.start_edit.setCalendarPopup(True)
-        start_container.addWidget(self.start_edit)
-        dates_layout.addLayout(start_container)
-
-        end_container = QVBoxLayout()
-        end_label = QLabel("종료")
-        end_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
-        end_container.addWidget(end_label)
-        self.end_edit = QDateEdit()
-        self.end_edit.setDate(QDate(self.plan.end_date.year, self.plan.end_date.month, self.plan.end_date.day))
-        self.end_edit.setCalendarPopup(True)
-        end_container.addWidget(self.end_edit)
-        dates_layout.addLayout(end_container)
-
-        layout.addLayout(dates_layout)
 
         # Type selection
         type_label = QLabel("타입")
@@ -431,7 +426,7 @@ class EditPlanDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _select_color(self, color: str, button: QPushButton):
-        """Select a color and highlight the button."""
+        """Select a color."""
         self.selected_color = color
 
         for btn in self.color_buttons:
@@ -456,45 +451,33 @@ class EditPlanDialog(QDialog):
         """)
 
     def _on_delete(self):
-        """Handle delete button click."""
+        """Handle delete."""
         self.delete_requested.emit()
         self.reject()
 
     def get_plan_data(self) -> dict:
-        """Get the updated plan data from the dialog."""
-        start_qdate = self.start_edit.date()
-        end_qdate = self.end_edit.date()
-
+        """Get the updated plan data."""
         return {
             "name": self.name_input.text().strip(),
-            "start_date": date(start_qdate.year(), start_qdate.month(), start_qdate.day()),
-            "end_date": date(end_qdate.year(), end_qdate.month(), end_qdate.day()),
             "plan_type": self.type_combo.currentData(),
             "color": self.selected_color
         }
 
 
-class MonthlyCalendar(QWidget):
-    """The main monthly calendar widget with plan blocks."""
-
-    plan_added = Signal(Plan)
-    plan_updated = Signal(str, dict)
-    plan_deleted = Signal(str)
+class YearBoard(QWidget):
+    """The main 12-month board widget."""
 
     def __init__(self):
         super().__init__()
-        self.current_date = date.today()
-        self.current_year = self.current_date.year
-        self.current_month = self.current_date.month
-        self.cells: dict[date, CalendarCell] = {}
-        self.drag_start_date: Optional[date] = None
-        self.plans: list[Plan] = []
-
+        self.storage = Storage()
+        self.state = self.storage.load()
+        self.month_cards: dict[int, MonthCard] = {}
         self._setup_ui()
+        self._update_board()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 24)
+        layout.setContentsMargins(32, 24, 32, 32)
         layout.setSpacing(24)
 
         # Header
@@ -503,205 +486,133 @@ class MonthlyCalendar(QWidget):
         # Navigation
         prev_btn = QPushButton("<")
         prev_btn.setObjectName("navButton")
-        prev_btn.clicked.connect(self._prev_month)
+        prev_btn.clicked.connect(self._prev_year)
         prev_btn.setCursor(Qt.PointingHandCursor)
         header_layout.addWidget(prev_btn)
 
-        # Month/Year display
-        month_container = QVBoxLayout()
-        month_container.setSpacing(2)
-
-        self.month_label = QLabel()
-        self.month_label.setObjectName("monthLabel")
-        self.month_label.setAlignment(Qt.AlignCenter)
-        month_container.addWidget(self.month_label)
-
-        self.year_label = QLabel()
-        self.year_label.setObjectName("yearLabel")
-        self.year_label.setAlignment(Qt.AlignCenter)
-        month_container.addWidget(self.year_label)
-
         header_layout.addStretch()
-        header_layout.addLayout(month_container)
+
+        # Year display
+        self.year_label = QLabel()
+        self.year_label.setStyleSheet(f"""
+            font-size: 32px;
+            font-weight: bold;
+            color: {COLORS['text_primary']};
+        """)
+        header_layout.addWidget(self.year_label)
+
         header_layout.addStretch()
 
         next_btn = QPushButton(">")
         next_btn.setObjectName("navButton")
-        next_btn.clicked.connect(self._next_month)
+        next_btn.clicked.connect(self._next_year)
         next_btn.setCursor(Qt.PointingHandCursor)
         header_layout.addWidget(next_btn)
 
-        # Add plan button
-        add_btn = QPushButton("+ 플랜 추가")
-        add_btn.setObjectName("addButton")
-        add_btn.clicked.connect(self._show_add_dialog)
-        add_btn.setCursor(Qt.PointingHandCursor)
-        header_layout.addWidget(add_btn)
-
         layout.addLayout(header_layout)
 
-        # Day headers
-        days_layout = QHBoxLayout()
-        days_layout.setSpacing(4)
-        day_names = ["월", "화", "수", "목", "금", "토", "일"]
-
-        for day in day_names:
-            label = QLabel(day)
-            label.setObjectName("dayHeader")
-            label.setAlignment(Qt.AlignCenter)
-            label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            days_layout.addWidget(label)
-
-        layout.addLayout(days_layout)
-
-        # Calendar grid
-        self.grid_widget = QWidget()
-        self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setSpacing(4)
+        # Month grid (4 columns x 3 rows)
+        grid_widget = QWidget()
+        self.grid_layout = QGridLayout(grid_widget)
+        self.grid_layout.setSpacing(16)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.grid_widget, 1)
 
-        self._update_calendar()
+        current_month = date.today().month
+        current_year = date.today().year
 
-    def _update_calendar(self):
-        """Update the calendar display for the current month."""
-        # Update labels
-        month_names = ["", "1월", "2월", "3월", "4월", "5월", "6월",
-                      "7월", "8월", "9월", "10월", "11월", "12월"]
-        self.month_label.setText(month_names[self.current_month])
-        self.year_label.setText(str(self.current_year))
+        for month in range(1, 13):
+            row = (month - 1) // 4
+            col = (month - 1) % 4
 
-        # Clear existing cells
-        self.cells.clear()
-        while self.grid_layout.count():
-            child = self.grid_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            is_current = (self.state.current_year == current_year and month == current_month)
+            card = MonthCard(month, is_current)
+            card.add_plan_clicked.connect(self._on_add_plan)
+            card.plan_clicked.connect(self._on_plan_clicked)
+            card.plan_delete_requested.connect(self._on_plan_delete)
 
-        # Calculate the first day of the month
-        first_day = date(self.current_year, self.current_month, 1)
-        # Monday is 0, Sunday is 6
-        start_weekday = first_day.weekday()
+            self.grid_layout.addWidget(card, row, col)
+            self.month_cards[month] = card
 
-        # Calculate the starting date (may be in previous month)
-        start_date = first_day - timedelta(days=start_weekday)
+        layout.addWidget(grid_widget, 1)
 
-        # Create 6 weeks of cells
-        current = start_date
-        for week in range(6):
-            for day in range(7):
-                is_current_month = current.month == self.current_month
-                is_today = current == self.current_date
-                is_weekend = day >= 5
+    def _update_board(self):
+        """Update the board display."""
+        self.year_label.setText(f"{self.state.current_year}년")
 
-                cell = CalendarCell(current, is_current_month, is_today, is_weekend)
-                cell.drag_started.connect(self._on_drag_start)
-                cell.drag_ended.connect(self._on_drag_end)
+        current_month = date.today().month
+        current_year = date.today().year
 
-                self.grid_layout.addWidget(cell, week, day)
-                self.cells[current] = cell
+        for month, card in self.month_cards.items():
+            plans = self.state.get_plans_for_month(self.state.current_year, month)
+            card.set_plans(plans)
 
-                current += timedelta(days=1)
+            # Update current month highlight
+            is_current = (self.state.current_year == current_year and month == current_month)
+            if is_current:
+                card.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {COLORS['bg_secondary']};
+                        border: 2px solid {COLORS['accent']};
+                        border-radius: 16px;
+                    }}
+                """)
+            else:
+                card.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {COLORS['bg_secondary']};
+                        border: 1px solid {COLORS['border']};
+                        border-radius: 16px;
+                    }}
+                """)
 
-        # Add plan blocks
-        self._update_plan_blocks()
+    def _prev_year(self):
+        """Go to previous year."""
+        self.state.current_year -= 1
+        self.storage.save(self.state)
+        self._update_board()
 
-    def _update_plan_blocks(self):
-        """Update plan blocks on the calendar."""
-        # Clear all plan blocks
-        for cell in self.cells.values():
-            cell.clear_plans()
+    def _next_year(self):
+        """Go to next year."""
+        self.state.current_year += 1
+        self.storage.save(self.state)
+        self._update_board()
 
-        # Get plans for this month
-        month_plans = [p for p in self.plans
-                      if p.start_date.year == self.current_year and p.start_date.month == self.current_month
-                      or p.end_date.year == self.current_year and p.end_date.month == self.current_month
-                      or (p.start_date < date(self.current_year, self.current_month, 1)
-                          and p.end_date > date(self.current_year, self.current_month, monthrange(self.current_year, self.current_month)[1]))]
-
-        # Add blocks for each plan
-        for plan in month_plans:
-            for cell_date, cell in self.cells.items():
-                if plan.spans_date(cell_date):
-                    is_start = cell_date == plan.start_date
-                    is_end = cell_date == plan.end_date
-                    span = plan.get_duration_days()
-
-                    block = cell.add_plan_block(plan, is_start, is_end, span)
-                    if block:
-                        block.clicked.connect(self._on_plan_clicked)
-                        block.delete_requested.connect(self._on_plan_delete_requested)
-
-    def set_plans(self, plans: list[Plan]):
-        """Set the plans to display."""
-        self.plans = plans
-        self._update_plan_blocks()
-
-    def _prev_month(self):
-        """Go to previous month."""
-        if self.current_month == 1:
-            self.current_month = 12
-            self.current_year -= 1
-        else:
-            self.current_month -= 1
-        self._update_calendar()
-
-    def _next_month(self):
-        """Go to next month."""
-        if self.current_month == 12:
-            self.current_month = 1
-            self.current_year += 1
-        else:
-            self.current_month += 1
-        self._update_calendar()
-
-    def _on_drag_start(self, d: date):
-        """Handle drag start."""
-        self.drag_start_date = d
-
-    def _on_drag_end(self, d: date):
-        """Handle drag end - show add dialog."""
-        if self.drag_start_date:
-            start = min(self.drag_start_date, d)
-            end = max(self.drag_start_date, d)
-            self._show_add_dialog_with_dates(start, end)
-            self.drag_start_date = None
-
-    def _show_add_dialog(self):
-        """Show the add plan dialog with today's date."""
-        today = date.today()
-        self._show_add_dialog_with_dates(today, today)
-
-    def _show_add_dialog_with_dates(self, start: date, end: date):
-        """Show the add plan dialog with specified dates."""
-        dialog = AddPlanDialog(start, end, self)
+    def _on_add_plan(self, month: int):
+        """Handle add plan button click."""
+        dialog = AddPlanDialog(self.state.current_year, month, self)
         if dialog.exec() == QDialog.Accepted:
             data = dialog.get_plan_data()
             if data["name"]:
                 plan = Plan.create(
                     name=data["name"],
-                    start_date=data["start_date"],
-                    end_date=data["end_date"],
+                    year=data["year"],
+                    month=data["month"],
                     plan_type=data["plan_type"],
                     color=data["color"]
                 )
-                self.plan_added.emit(plan)
+                self.state.add_plan(plan)
+                self.storage.save(self.state)
+                self._update_board()
 
     def _on_plan_clicked(self, plan_id: str):
-        """Handle plan block click - show edit dialog."""
-        plan = next((p for p in self.plans if p.id == plan_id), None)
+        """Handle plan click - show edit dialog."""
+        plan = self.state.get_plan(plan_id)
         if plan:
             dialog = EditPlanDialog(plan, self)
-            dialog.delete_requested.connect(lambda: self.plan_deleted.emit(plan_id))
+            dialog.delete_requested.connect(lambda: self._on_plan_delete(plan_id))
 
             if dialog.exec() == QDialog.Accepted:
                 data = dialog.get_plan_data()
                 if data["name"]:
-                    self.plan_updated.emit(plan_id, data)
+                    self.state.update_plan(plan_id, **data)
+                    self.storage.save(self.state)
+                    self._update_board()
 
-    def _on_plan_delete_requested(self, plan_id: str):
-        """Handle plan delete request (right-click)."""
-        self.plan_deleted.emit(plan_id)
+    def _on_plan_delete(self, plan_id: str):
+        """Handle plan deletion."""
+        self.state.remove_plan(plan_id)
+        self.storage.save(self.state)
+        self._update_board()
 
 
 class MainWindow(QMainWindow):
@@ -709,45 +620,19 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.storage = Storage()
-        self.state = self.storage.load()
-
         self._setup_window()
         self._setup_ui()
 
     def _setup_window(self):
         """Configure the main window."""
         self.setWindowTitle("Monthly Plan Board")
-        self.setMinimumSize(900, 700)
-        self.resize(1100, 800)
+        self.setMinimumSize(1000, 700)
+        self.resize(1200, 800)
 
     def _setup_ui(self):
         """Set up the UI components."""
-        self.calendar = MonthlyCalendar()
-        self.calendar.set_plans(self.state.plans)
-        self.calendar.plan_added.connect(self._on_plan_added)
-        self.calendar.plan_updated.connect(self._on_plan_updated)
-        self.calendar.plan_deleted.connect(self._on_plan_deleted)
-
-        self.setCentralWidget(self.calendar)
-
-    def _on_plan_added(self, plan: Plan):
-        """Handle new plan addition."""
-        self.state.add_plan(plan)
-        self.storage.save(self.state)
-        self.calendar.set_plans(self.state.plans)
-
-    def _on_plan_updated(self, plan_id: str, data: dict):
-        """Handle plan update."""
-        self.state.update_plan(plan_id, **data)
-        self.storage.save(self.state)
-        self.calendar.set_plans(self.state.plans)
-
-    def _on_plan_deleted(self, plan_id: str):
-        """Handle plan deletion."""
-        self.state.remove_plan(plan_id)
-        self.storage.save(self.state)
-        self.calendar.set_plans(self.state.plans)
+        self.board = YearBoard()
+        self.setCentralWidget(self.board)
 
 
 def main():
