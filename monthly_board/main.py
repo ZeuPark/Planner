@@ -49,27 +49,20 @@ class PlanBlock(QFrame):
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setFixedHeight(28)
+        self.setFixedHeight(26)
         self.setCursor(Qt.PointingHandCursor)
 
-        # Completed plans are faded
-        if self.plan.completed:
-            bg_alpha = "0.015"
-            text_alpha = "0.3"
-            border_color = "rgba(128, 128, 128, 0.2)"
-        else:
-            bg_alpha = "0.05" if self.is_primary else "0.025"
-            text_alpha = "0.85" if self.is_primary else "0.65"
-            border_color = self.plan.color
+        # Simplified styling (no strikethrough, just alpha change)
+        bg_alpha = "0.04" if self.is_primary else "0.02"
+        text_alpha = "0.8" if self.is_primary else "0.6"
 
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(255, 255, 255, {bg_alpha});
-                border-left: 2px solid {border_color};
-                border-radius: 0px;
+                border-left: 2px solid {self.plan.color};
             }}
             QFrame:hover {{
-                background-color: rgba(255, 255, 255, 0.06);
+                background-color: rgba(255, 255, 255, 0.05);
             }}
         """)
 
@@ -79,13 +72,11 @@ class PlanBlock(QFrame):
 
         # Plan name
         name_label = QLabel(self.plan.name)
-        decoration = "line-through" if self.plan.completed else "none"
         name_label.setStyleSheet(f"""
             color: rgba(255, 255, 255, {text_alpha});
             font-size: 11px;
             font-weight: 500;
             background: transparent;
-            text-decoration: {decoration};
         """)
         layout.addWidget(name_label)
 
@@ -95,8 +86,8 @@ class PlanBlock(QFrame):
         date_display = self.plan.get_date_display()
         if date_display:
             date_label = QLabel(date_display)
-            date_label.setStyleSheet(f"""
-                color: rgba(255, 255, 255, {0.1 if self.plan.completed else 0.2});
+            date_label.setStyleSheet("""
+                color: rgba(255, 255, 255, 0.2);
                 font-size: 9px;
                 background: transparent;
             """)
@@ -379,86 +370,101 @@ class MonthDetailView(QWidget):
 
     def _create_plan_item(self, plan: Plan, is_primary: bool = False) -> QFrame:
         item = QFrame()
-        item.setFixedHeight(38)
+        item.setFixedHeight(40)
 
-        # Completed plans are more faded
+        # Style based on completion (completion has highest priority)
         if plan.completed:
             bg_alpha = "0.015"
-            text_alpha = "0.35"
-            border_color = f"rgba(128, 128, 128, 0.3)"
+            hover_alpha = "0.025"
+            text_alpha = "0.3"
+            border_color = "rgba(128, 128, 128, 0.15)"
         else:
-            bg_alpha = "0.04" if is_primary else "0.025"
-            text_alpha = "0.85" if is_primary else "0.7"
+            bg_alpha = "0.035" if is_primary else "0.02"
+            hover_alpha = "0.05"
+            text_alpha = "0.8" if is_primary else "0.65"
             border_color = plan.color
 
         item.setStyleSheet(f"""
             QFrame {{
                 background-color: rgba(255, 255, 255, {bg_alpha});
                 border-left: 2px solid {border_color};
-                border-radius: 0px;
             }}
             QFrame:hover {{
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: rgba(255, 255, 255, {hover_alpha});
             }}
         """)
 
+        # 3-column fixed layout
         layout = QHBoxLayout(item)
-        layout.setContentsMargins(10, 0, 14, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Checkbox for completion
+        # Column 1: Checkbox area (fixed 40px, centered)
+        checkbox_container = QWidget()
+        checkbox_container.setFixedWidth(40)
+        checkbox_layout = QHBoxLayout(checkbox_container)
+        checkbox_layout.setContentsMargins(12, 0, 0, 0)
+        checkbox_layout.setAlignment(Qt.AlignVCenter)
+
         checkbox = QCheckBox()
         checkbox.setChecked(plan.completed)
-        checkbox.setFixedSize(18, 18)
+        checkbox.setFixedSize(16, 16)
         checkbox.setCursor(Qt.PointingHandCursor)
         checkbox.setStyleSheet("""
             QCheckBox {
                 spacing: 0px;
+                background: transparent;
             }
             QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
+                width: 14px;
+                height: 14px;
                 border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 4px;
+                border-radius: 3px;
                 background-color: transparent;
             }
-            QCheckBox::indicator:hover {
-                border-color: rgba(255, 255, 255, 0.4);
-            }
             QCheckBox::indicator:checked {
-                background-color: rgba(255, 255, 255, 0.15);
-                border-color: rgba(255, 255, 255, 0.3);
+                background-color: rgba(255, 255, 255, 0.2);
+                border-color: rgba(255, 255, 255, 0.25);
             }
         """)
         checkbox.toggled.connect(lambda checked, p=plan: self.plan_toggle_requested.emit(p.id))
-        layout.addWidget(checkbox)
+        checkbox_layout.addWidget(checkbox)
+        layout.addWidget(checkbox_container)
 
-        # Plan name
+        # Column 2: Text area (flex, elided)
         name_label = QLabel(plan.name)
-        decoration = "line-through" if plan.completed else "none"
         name_label.setStyleSheet(f"""
             color: rgba(255, 255, 255, {text_alpha});
             font-size: 13px;
             font-weight: 500;
             background: transparent;
-            text-decoration: {decoration};
+            padding-right: 8px;
         """)
+        name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        name_label.setFixedHeight(40)
         name_label.setCursor(Qt.PointingHandCursor)
         name_label.mousePressEvent = lambda e, p=plan: self._on_name_click(e, p)
-        layout.addWidget(name_label)
+        layout.addWidget(name_label, 1)
 
-        layout.addStretch()
-
-        # Date range
+        # Column 3: Date area (fixed 70px, right aligned)
         date_display = plan.get_date_display()
+        date_container = QWidget()
+        date_container.setFixedWidth(70)
+        date_layout = QHBoxLayout(date_container)
+        date_layout.setContentsMargins(0, 0, 14, 0)
+        date_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
         if date_display:
             date_label = QLabel(date_display)
             date_label.setStyleSheet(f"""
-                color: rgba(255, 255, 255, {0.15 if plan.completed else 0.2});
-                font-size: 11px;
+                color: rgba(255, 255, 255, {0.15 if plan.completed else 0.25});
+                font-size: 10px;
                 background: transparent;
             """)
-            layout.addWidget(date_label)
+            date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            date_layout.addWidget(date_label)
+
+        layout.addWidget(date_container)
 
         return item
 
