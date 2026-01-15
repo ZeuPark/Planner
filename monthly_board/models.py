@@ -43,13 +43,15 @@ PLAN_COLORS = [
 
 @dataclass
 class Plan:
-    """A plan assigned to a specific month."""
+    """A plan assigned to a specific month with optional date range."""
     id: str
     name: str
     year: int
     month: int  # 1-12
     plan_type: PlanType
     color: str
+    start_day: Optional[int] = None  # 1-31
+    end_day: Optional[int] = None    # 1-31
 
     @classmethod
     def create(
@@ -58,7 +60,9 @@ class Plan:
         year: int,
         month: int,
         plan_type: PlanType = PlanType.OTHER,
-        color: Optional[str] = None
+        color: Optional[str] = None,
+        start_day: Optional[int] = None,
+        end_day: Optional[int] = None
     ) -> "Plan":
         if color is None:
             color_index = hash(name) % len(PLAN_COLORS)
@@ -70,8 +74,20 @@ class Plan:
             year=year,
             month=month,
             plan_type=plan_type,
-            color=color
+            color=color,
+            start_day=start_day,
+            end_day=end_day
         )
+
+    def get_date_display(self) -> str:
+        """Get a display string for the date range."""
+        if self.start_day and self.end_day:
+            if self.start_day == self.end_day:
+                return f"{self.month}/{self.start_day}"
+            return f"{self.month}/{self.start_day} - {self.month}/{self.end_day}"
+        elif self.start_day:
+            return f"{self.month}/{self.start_day}"
+        return ""
 
     def to_dict(self) -> dict:
         return {
@@ -80,7 +96,9 @@ class Plan:
             "year": self.year,
             "month": self.month,
             "plan_type": self.plan_type.value,
-            "color": self.color
+            "color": self.color,
+            "start_day": self.start_day,
+            "end_day": self.end_day
         }
 
     @classmethod
@@ -91,7 +109,9 @@ class Plan:
             year=data["year"],
             month=data["month"],
             plan_type=PlanType(data["plan_type"]),
-            color=data["color"]
+            color=data["color"],
+            start_day=data.get("start_day"),
+            end_day=data.get("end_day")
         )
 
 

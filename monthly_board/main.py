@@ -8,11 +8,12 @@ Monthly Plan Board
 import sys
 import os
 from datetime import date
+from calendar import monthrange
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QFrame, QDialog, QLineEdit,
-    QSizePolicy
+    QSizePolicy, QSpinBox, QCheckBox, QStackedWidget, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase
@@ -36,7 +37,7 @@ SIMPLE_COLORS = [
 
 
 class PlanBlock(QFrame):
-    """플랜 블록 - 화면의 주인공."""
+    """플랜 블록 - 컴팩트한 리스트 아이템."""
 
     clicked = Signal(str)
     delete_requested = Signal(str)
@@ -47,38 +48,45 @@ class PlanBlock(QFrame):
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setFixedHeight(52)
+        self.setFixedHeight(32)
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet(f"""
             QFrame {{
-                background-color: {self.plan.color};
-                border-radius: 12px;
+                background-color: rgba(255, 255, 255, 0.04);
+                border-left: 3px solid {self.plan.color};
+                border-radius: 0px;
             }}
             QFrame:hover {{
-                background-color: {self._lighten_color(self.plan.color)};
+                background-color: rgba(255, 255, 255, 0.08);
             }}
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(18, 0, 18, 0)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(0)
 
-        # Plan name only - no type label
+        # Plan name
         name_label = QLabel(self.plan.name)
         name_label.setStyleSheet("""
-            color: white;
-            font-size: 14px;
-            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            font-weight: 500;
             background: transparent;
         """)
         layout.addWidget(name_label)
+
         layout.addStretch()
 
-    def _lighten_color(self, hex_color: str) -> str:
-        color = QColor(hex_color)
-        h, s, l, a = color.getHslF()
-        l = min(1.0, l + 0.08)
-        color.setHslF(h, s, l, a)
-        return color.name()
+        # Date range (if exists)
+        date_display = self.plan.get_date_display()
+        if date_display:
+            date_label = QLabel(date_display)
+            date_label.setStyleSheet("""
+                color: rgba(255, 255, 255, 0.3);
+                font-size: 10px;
+                background: transparent;
+            """)
+            layout.addWidget(date_label)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -87,25 +95,35 @@ class PlanBlock(QFrame):
             self.delete_requested.emit(self.plan.id)
 
 
-class MonthZone(QWidget):
-    """월 영역 - 배경 역할, 인터랙티브하지 않음."""
+class MonthZone(QFrame):
+    """월 영역 - 배경 역할."""
 
     add_plan_clicked = Signal(int)
     plan_clicked = Signal(str)
     plan_delete_requested = Signal(str)
+    month_clicked = Signal(int)
 
     def __init__(self, month: int, parent=None):
         super().__init__(parent)
         self.month = month
         self.plans: list[Plan] = []
         self._setup_ui()
+        self.setCursor(Qt.PointingHandCursor)
 
     def _setup_ui(self):
+        self.setObjectName("monthZone")
+        self.setStyleSheet("""
+            QFrame#monthZone {
+                background-color: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 8px;
+            }
+        """)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 16)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 10)
+        layout.setSpacing(0)
 
         # Header - minimal, muted
         header_layout = QHBoxLayout()
@@ -114,22 +132,22 @@ class MonthZone(QWidget):
         month_label = QLabel(MONTH_NAMES[self.month])
         month_label.setStyleSheet("""
             font-size: 13px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, 0.4);
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.5);
         """)
         header_layout.addWidget(month_label)
 
         header_layout.addStretch()
 
-        # Subtle add button - only visible on intent
+        # Subtle add button
         self.add_btn = QPushButton("+")
-        self.add_btn.setFixedSize(24, 24)
+        self.add_btn.setFixedSize(22, 22)
         self.add_btn.setCursor(Qt.PointingHandCursor)
         self.add_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
                 border: none;
-                border-radius: 12px;
+                border-radius: 11px;
                 color: rgba(255, 255, 255, 0.25);
                 font-size: 16px;
             }
@@ -143,74 +161,299 @@ class MonthZone(QWidget):
 
         layout.addLayout(header_layout)
 
-        # Plans container - this is where the focus should be
+        # Spacer between header and plans
+        layout.addSpacing(12)
+
+        # Plans container
         self.plans_widget = QWidget()
         self.plans_layout = QVBoxLayout(self.plans_widget)
-        self.plans_layout.setContentsMargins(0, 4, 0, 0)
-        self.plans_layout.setSpacing(10)
+        self.plans_layout.setContentsMargins(0, 0, 0, 0)
+        self.plans_layout.setSpacing(6)
 
         layout.addWidget(self.plans_widget)
         layout.addStretch()
 
     def set_plans(self, plans: list[Plan]):
         self.plans = plans
+        max_visible = 5
 
         while self.plans_layout.count():
             child = self.plans_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-        for plan in plans:
+        visible_plans = plans[:max_visible]
+        for plan in visible_plans:
             block = PlanBlock(plan)
             block.clicked.connect(self.plan_clicked.emit)
             block.delete_requested.connect(self.plan_delete_requested.emit)
             self.plans_layout.addWidget(block)
 
+        # Show summary if more plans exist
+        if len(plans) > max_visible:
+            more_label = QLabel(f"+{len(plans) - max_visible}개 더보기")
+            more_label.setStyleSheet("""
+                color: rgba(255, 255, 255, 0.3);
+                font-size: 11px;
+                padding: 4px 0;
+            """)
+            more_label.setAlignment(Qt.AlignCenter)
+            self.plans_layout.addWidget(more_label)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.month_clicked.emit(self.month)
+
+
+class MonthDetailView(QWidget):
+    """월 상세 보기 - 플랜 리스트."""
+
+    back_clicked = Signal()
+    plan_clicked = Signal(str)
+    plan_delete_requested = Signal(str)
+    add_plan_clicked = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.year = 0
+        self.month = 0
+        self.plans = []
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 24)
+        layout.setSpacing(16)
+
+        # Header
+        header_layout = QHBoxLayout()
+
+        self.back_btn = QPushButton("←")
+        self.back_btn.setFixedSize(40, 40)
+        self.back_btn.setCursor(Qt.PointingHandCursor)
+        self.back_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 20px;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                color: white;
+            }
+        """)
+        self.back_btn.clicked.connect(self.back_clicked.emit)
+        header_layout.addWidget(self.back_btn)
+
+        self.title_label = QLabel()
+        self.title_label.setStyleSheet("""
+            font-size: 24px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.9);
+            margin-left: 12px;
+        """)
+        header_layout.addWidget(self.title_label)
+
+        header_layout.addStretch()
+
+        self.add_btn = QPushButton("+ 플랜 추가")
+        self.add_btn.setMinimumHeight(40)
+        self.add_btn.setCursor(Qt.PointingHandCursor)
+        self.add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.1);
+                border: none;
+                border-radius: 8px;
+                padding: 0 20px;
+                color: rgba(255, 255, 255, 0.8);
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+        """)
+        self.add_btn.clicked.connect(lambda: self.add_plan_clicked.emit(self.month))
+        header_layout.addWidget(self.add_btn)
+
+        layout.addLayout(header_layout)
+
+        # Plans list area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.plans_container = QWidget()
+        self.plans_layout = QVBoxLayout(self.plans_container)
+        self.plans_layout.setContentsMargins(0, 8, 0, 8)
+        self.plans_layout.setSpacing(4)
+        self.plans_layout.addStretch()
+
+        scroll.setWidget(self.plans_container)
+        layout.addWidget(scroll, 1)
+
+    def set_data(self, year: int, month: int, plans: list):
+        self.year = year
+        self.month = month
+        self.plans = plans
+
+        self.title_label.setText(f"{year}년 {MONTH_NAMES[month]}")
+
+        # Clear existing plans
+        while self.plans_layout.count() > 1:
+            child = self.plans_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # Add plan items
+        if not plans:
+            empty_label = QLabel("플랜이 없습니다")
+            empty_label.setStyleSheet("""
+                color: rgba(255, 255, 255, 0.3);
+                font-size: 15px;
+                padding: 40px;
+            """)
+            empty_label.setAlignment(Qt.AlignCenter)
+            self.plans_layout.insertWidget(0, empty_label)
+        else:
+            for plan in plans:
+                item = self._create_plan_item(plan)
+                self.plans_layout.insertWidget(self.plans_layout.count() - 1, item)
+
+    def _create_plan_item(self, plan: Plan) -> QFrame:
+        item = QFrame()
+        item.setFixedHeight(44)
+        item.setCursor(Qt.PointingHandCursor)
+        item.setStyleSheet(f"""
+            QFrame {{
+                background-color: rgba(255, 255, 255, 0.04);
+                border-left: 3px solid {plan.color};
+                border-radius: 0px;
+            }}
+            QFrame:hover {{
+                background-color: rgba(255, 255, 255, 0.07);
+            }}
+        """)
+
+        layout = QHBoxLayout(item)
+        layout.setContentsMargins(14, 0, 16, 0)
+        layout.setSpacing(0)
+
+        # Plan name
+        name_label = QLabel(plan.name)
+        name_label.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            font-weight: 500;
+            background: transparent;
+        """)
+        layout.addWidget(name_label)
+
+        layout.addStretch()
+
+        # Date range
+        date_display = plan.get_date_display()
+        if date_display:
+            date_label = QLabel(date_display)
+            date_label.setStyleSheet("""
+                color: rgba(255, 255, 255, 0.3);
+                font-size: 12px;
+                background: transparent;
+            """)
+            layout.addWidget(date_label)
+
+        # Make clickable
+        item.mousePressEvent = lambda e, p=plan: self._on_item_click(e, p)
+
+        return item
+
+    def _on_item_click(self, event, plan: Plan):
+        if event.button() == Qt.LeftButton:
+            self.plan_clicked.emit(plan.id)
+        elif event.button() == Qt.RightButton:
+            self.plan_delete_requested.emit(plan.id)
+
 
 class AddPlanDialog(QDialog):
-    """플랜 추가 다이얼로그 - 최소한의 입력."""
+    """플랜 추가 다이얼로그."""
 
     def __init__(self, year: int, month: int, parent=None):
         super().__init__(parent)
         self.year = year
         self.month = month
-        # Auto-assign color based on existing plans count
-        self.color_index = 0
+        self.max_day = monthrange(year, month)[1]
         self._setup_ui()
 
     def _setup_ui(self):
         self.setWindowTitle("플랜 추가")
-        self.setFixedSize(360, 200)
+        self.setFixedSize(380, 280)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(24)
+        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setSpacing(20)
 
-        # Title - simple
-        title = QLabel(f"{MONTH_NAMES[self.month]}")
+        # Title
+        title = QLabel(f"{self.year}년 {MONTH_NAMES[self.month]}")
         title.setStyleSheet("""
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
             color: rgba(255, 255, 255, 0.5);
         """)
         layout.addWidget(title)
 
-        # Name input only
+        # Name input
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("플랜 이름")
-        self.name_input.setMinimumHeight(48)
+        self.name_input.setMinimumHeight(44)
         self.name_input.setStyleSheet("""
             QLineEdit {
-                font-size: 16px;
+                font-size: 15px;
                 padding: 0 16px;
+                border-radius: 8px;
             }
         """)
+        self.name_input.returnPressed.connect(self.accept)
         layout.addWidget(self.name_input)
+
+        # Date range (optional)
+        date_layout = QHBoxLayout()
+        date_layout.setSpacing(12)
+
+        self.date_checkbox = QCheckBox("기간 설정")
+        self.date_checkbox.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 13px;")
+        self.date_checkbox.toggled.connect(self._toggle_date_inputs)
+        date_layout.addWidget(self.date_checkbox)
+
+        self.start_day = QSpinBox()
+        self.start_day.setRange(1, self.max_day)
+        self.start_day.setValue(1)
+        self.start_day.setMinimumHeight(40)
+        self.start_day.setMinimumWidth(70)
+        self.start_day.setSuffix("일")
+        self.start_day.setEnabled(False)
+        date_layout.addWidget(self.start_day)
+
+        self.dash_label = QLabel("~")
+        self.dash_label.setStyleSheet("color: rgba(255, 255, 255, 0.2);")
+        date_layout.addWidget(self.dash_label)
+
+        self.end_day = QSpinBox()
+        self.end_day.setRange(1, self.max_day)
+        self.end_day.setValue(self.max_day)
+        self.end_day.setMinimumHeight(40)
+        self.end_day.setMinimumWidth(70)
+        self.end_day.setSuffix("일")
+        self.end_day.setEnabled(False)
+        date_layout.addWidget(self.end_day)
+
+        date_layout.addStretch()
+        layout.addLayout(date_layout)
 
         layout.addStretch()
 
-        # Buttons - minimal
+        # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(12)
 
@@ -219,7 +462,7 @@ class AddPlanDialog(QDialog):
         cancel_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 8px;
                 color: rgba(255, 255, 255, 0.6);
             }
@@ -234,14 +477,14 @@ class AddPlanDialog(QDialog):
         add_btn.setMinimumHeight(44)
         add_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.15);
+                background-color: rgba(255, 255, 255, 0.12);
                 border: none;
                 border-radius: 8px;
                 color: white;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 255, 255, 0.18);
             }
         """)
         add_btn.clicked.connect(self.accept)
@@ -249,15 +492,36 @@ class AddPlanDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def _toggle_date_inputs(self, enabled: bool):
+        self.start_day.setEnabled(enabled)
+        self.end_day.setEnabled(enabled)
+        if enabled:
+            self.dash_label.setStyleSheet("color: rgba(255, 255, 255, 0.4);")
+        else:
+            self.dash_label.setStyleSheet("color: rgba(255, 255, 255, 0.2);")
+
     def get_plan_data(self, existing_count: int) -> dict:
-        # Auto-assign color based on how many plans exist
         color = SIMPLE_COLORS[existing_count % len(SIMPLE_COLORS)]
+        start_day = None
+        end_day = None
+
+        if self.date_checkbox.isChecked():
+            start = self.start_day.value()
+            end = self.end_day.value()
+            # Ensure start <= end
+            if start > end:
+                start, end = end, start
+            start_day = start
+            end_day = end
+
         return {
             "name": self.name_input.text().strip(),
             "year": self.year,
             "month": self.month,
             "plan_type": PlanType.OTHER,
-            "color": color
+            "color": color,
+            "start_day": start_day,
+            "end_day": end_day
         }
 
 
@@ -269,32 +533,71 @@ class EditPlanDialog(QDialog):
     def __init__(self, plan: Plan, parent=None):
         super().__init__(parent)
         self.plan = plan
+        self.max_day = monthrange(plan.year, plan.month)[1]
         self._setup_ui()
 
     def _setup_ui(self):
         self.setWindowTitle("플랜 수정")
-        self.setFixedSize(360, 240)
+        self.setFixedSize(380, 320)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(24)
+        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setSpacing(20)
 
         # Name input
         self.name_input = QLineEdit()
         self.name_input.setText(self.plan.name)
-        self.name_input.setMinimumHeight(48)
+        self.name_input.setMinimumHeight(44)
         self.name_input.setStyleSheet("""
             QLineEdit {
-                font-size: 16px;
+                font-size: 15px;
                 padding: 0 16px;
+                border-radius: 8px;
             }
         """)
+        self.name_input.returnPressed.connect(self.accept)
         layout.addWidget(self.name_input)
+
+        # Date range (optional)
+        date_layout = QHBoxLayout()
+        date_layout.setSpacing(12)
+
+        has_date = self.plan.start_day is not None or self.plan.end_day is not None
+        self.date_checkbox = QCheckBox("기간 설정")
+        self.date_checkbox.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 13px;")
+        self.date_checkbox.setChecked(has_date)
+        self.date_checkbox.toggled.connect(self._toggle_date_inputs)
+        date_layout.addWidget(self.date_checkbox)
+
+        self.start_day = QSpinBox()
+        self.start_day.setRange(1, self.max_day)
+        self.start_day.setValue(self.plan.start_day or 1)
+        self.start_day.setMinimumHeight(40)
+        self.start_day.setMinimumWidth(70)
+        self.start_day.setSuffix("일")
+        self.start_day.setEnabled(has_date)
+        date_layout.addWidget(self.start_day)
+
+        self.dash_label = QLabel("~")
+        self.dash_label.setStyleSheet(f"color: rgba(255, 255, 255, {0.4 if has_date else 0.2});")
+        date_layout.addWidget(self.dash_label)
+
+        self.end_day = QSpinBox()
+        self.end_day.setRange(1, self.max_day)
+        self.end_day.setValue(self.plan.end_day or self.max_day)
+        self.end_day.setMinimumHeight(40)
+        self.end_day.setMinimumWidth(70)
+        self.end_day.setSuffix("일")
+        self.end_day.setEnabled(has_date)
+        date_layout.addWidget(self.end_day)
+
+        date_layout.addStretch()
+        layout.addLayout(date_layout)
 
         layout.addStretch()
 
-        # Delete button - subtle
+        # Delete button
         delete_btn = QPushButton("삭제")
         delete_btn.setMinimumHeight(40)
         delete_btn.setStyleSheet("""
@@ -319,7 +622,7 @@ class EditPlanDialog(QDialog):
         cancel_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 8px;
                 color: rgba(255, 255, 255, 0.6);
             }
@@ -334,14 +637,14 @@ class EditPlanDialog(QDialog):
         save_btn.setMinimumHeight(44)
         save_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.15);
+                background-color: rgba(255, 255, 255, 0.12);
                 border: none;
                 border-radius: 8px;
                 color: white;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 255, 255, 0.18);
             }
         """)
         save_btn.clicked.connect(self.accept)
@@ -349,13 +652,34 @@ class EditPlanDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def _toggle_date_inputs(self, enabled: bool):
+        self.start_day.setEnabled(enabled)
+        self.end_day.setEnabled(enabled)
+        if enabled:
+            self.dash_label.setStyleSheet("color: rgba(255, 255, 255, 0.4);")
+        else:
+            self.dash_label.setStyleSheet("color: rgba(255, 255, 255, 0.2);")
+
     def _on_delete(self):
         self.delete_requested.emit()
         self.reject()
 
     def get_plan_data(self) -> dict:
+        start_day = None
+        end_day = None
+
+        if self.date_checkbox.isChecked():
+            start = self.start_day.value()
+            end = self.end_day.value()
+            if start > end:
+                start, end = end, start
+            start_day = start
+            end_day = end
+
         return {
             "name": self.name_input.text().strip(),
+            "start_day": start_day,
+            "end_day": end_day
         }
 
 
@@ -367,18 +691,41 @@ class YearBoard(QWidget):
         self.storage = Storage()
         self.state = self.storage.load()
         self.month_zones: dict[int, MonthZone] = {}
+        self.current_detail_month = None
         self._setup_ui()
         self._update_board()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 32)
-        layout.setSpacing(20)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Header - demoted, utility text
+        # Stacked widget for view switching
+        self.stack = QStackedWidget()
+
+        # Grid view (12 months)
+        self.grid_view = QWidget()
+        self._setup_grid_view()
+        self.stack.addWidget(self.grid_view)
+
+        # Detail view (single month)
+        self.detail_view = MonthDetailView()
+        self.detail_view.back_clicked.connect(self._show_grid_view)
+        self.detail_view.plan_clicked.connect(self._on_plan_clicked)
+        self.detail_view.plan_delete_requested.connect(self._on_plan_delete)
+        self.detail_view.add_plan_clicked.connect(self._on_add_plan)
+        self.stack.addWidget(self.detail_view)
+
+        layout.addWidget(self.stack)
+
+    def _setup_grid_view(self):
+        layout = QVBoxLayout(self.grid_view)
+        layout.setContentsMargins(24, 20, 24, 24)
+        layout.setSpacing(16)
+
+        # Header
         header_layout = QHBoxLayout()
 
-        # Navigation - small, subtle
         prev_btn = QPushButton("<")
         prev_btn.setFixedSize(32, 32)
         prev_btn.setCursor(Qt.PointingHandCursor)
@@ -398,7 +745,6 @@ class YearBoard(QWidget):
         prev_btn.clicked.connect(self._prev_year)
         header_layout.addWidget(prev_btn)
 
-        # Year label - utility, not decorative
         self.year_label = QLabel()
         self.year_label.setStyleSheet("""
             font-size: 15px;
@@ -429,10 +775,10 @@ class YearBoard(QWidget):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Month grid - passive scaffold
+        # Month grid
         grid_widget = QWidget()
         self.grid_layout = QGridLayout(grid_widget)
-        self.grid_layout.setSpacing(12)
+        self.grid_layout.setSpacing(10)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
 
         for month in range(1, 13):
@@ -443,6 +789,7 @@ class YearBoard(QWidget):
             zone.add_plan_clicked.connect(self._on_add_plan)
             zone.plan_clicked.connect(self._on_plan_clicked)
             zone.plan_delete_requested.connect(self._on_plan_delete)
+            zone.month_clicked.connect(self._on_month_clicked)
 
             self.grid_layout.addWidget(zone, row, col)
             self.month_zones[month] = zone
@@ -455,6 +802,22 @@ class YearBoard(QWidget):
         for month, zone in self.month_zones.items():
             plans = self.state.get_plans_for_month(self.state.current_year, month)
             zone.set_plans(plans)
+
+    def _update_detail_view(self):
+        if self.current_detail_month:
+            plans = self.state.get_plans_for_month(self.state.current_year, self.current_detail_month)
+            self.detail_view.set_data(self.state.current_year, self.current_detail_month, plans)
+
+    def _show_grid_view(self):
+        self.current_detail_month = None
+        self._update_board()
+        self.stack.setCurrentIndex(0)
+
+    def _show_detail_view(self, month: int):
+        self.current_detail_month = month
+        plans = self.state.get_plans_for_month(self.state.current_year, month)
+        self.detail_view.set_data(self.state.current_year, month, plans)
+        self.stack.setCurrentIndex(1)
 
     def _prev_year(self):
         self.state.current_year -= 1
@@ -477,11 +840,14 @@ class YearBoard(QWidget):
                     year=data["year"],
                     month=data["month"],
                     plan_type=data["plan_type"],
-                    color=data["color"]
+                    color=data["color"],
+                    start_day=data["start_day"],
+                    end_day=data["end_day"]
                 )
                 self.state.add_plan(plan)
                 self.storage.save(self.state)
                 self._update_board()
+                self._update_detail_view()
 
     def _on_plan_clicked(self, plan_id: str):
         plan = self.state.get_plan(plan_id)
@@ -495,11 +861,16 @@ class YearBoard(QWidget):
                     self.state.update_plan(plan_id, **data)
                     self.storage.save(self.state)
                     self._update_board()
+                    self._update_detail_view()
 
     def _on_plan_delete(self, plan_id: str):
         self.state.remove_plan(plan_id)
         self.storage.save(self.state)
         self._update_board()
+        self._update_detail_view()
+
+    def _on_month_clicked(self, month: int):
+        self._show_detail_view(month)
 
 
 class MainWindow(QMainWindow):
@@ -541,7 +912,7 @@ def main():
     # Load custom fonts first
     load_fonts()
 
-    # Clean dark theme with better readability
+    # Clean dark theme
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
 
     # Use Pretendard for better Korean readability
